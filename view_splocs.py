@@ -3,9 +3,10 @@ from itertools import count
 import numpy as np
 import h5py
 from traits.api import HasTraits, Range, Instance, Bool, Int, on_trait_change
-from traitsui.api import View, Item, HGroup, RangeEditor
+from traitsui.api import View, Item, HGroup, VGroup, RangeEditor
 from tvtk.api import tvtk
 from tvtk.pyface.scene_editor import SceneEditor
+from tvtk.common import configure_input_data
 from mayavi.tools.mlab_scene_model import MlabSceneModel
 from mayavi.core.ui.mayavi_scene import MayaviScene
 from pyface.timer.api import Timer
@@ -15,7 +16,8 @@ from inout import load_splocs
 
 
 def compute_normals(pd):
-    n = tvtk.PolyDataNormals(input=pd, splitting=False)
+    n = tvtk.PolyDataNormals()
+    configure_input_data(n, pd)
     n.update()
     return n.output.point_data.normals
 
@@ -36,17 +38,21 @@ class Visualization(HasTraits):
         self._components = components
         self._max_component_index = len(components)
         self._Xmean = Xmean
+        self.m = tvtk.PolyDataMapper()
         self.pd = tvtk.PolyData(points=Xmean, polys=tris)
-        self.pd.point_data.normals = compute_normals(self.pd) # compute normals once for rest-shape (faster)
-        self.actor = tvtk.Actor(mapper=tvtk.PolyDataMapper(
-            input=self.pd, immediate_mode_rendering=True))
+        self.pd.point_data.normals = compute_normals(self.pd)
+        
+        configure_input_data(self.m, self.pd)
+
+        self.actor = tvtk.Actor(mapper=self.m)
+
         self.actor.mapper.lookup_table = tvtk.LookupTable(
             hue_range = (0.45, 0.6),
             saturation_range = (0., 0.8),
             value_range = (.6, 1.),
         )
         self.scene.add_actor(self.actor)
-        self.timer = Timer(40, self.animate().next)
+        self.timer = Timer(40, self.animate)
 
     def animate(self):
         for i in count():
@@ -69,8 +75,8 @@ class Visualization(HasTraits):
 
     view = View(
         Item('scene', editor=SceneEditor(scene_class=MayaviScene),
-             height=800, width=800, show_label=False),
-        HGroup(
+             height=500, width=800, show_label=False),
+        VGroup(
             Item('component', editor=RangeEditor(
                 is_float=False, low=0, high_name='_max_component_index', mode='spinner')),
             'activation', 
@@ -81,8 +87,7 @@ class Visualization(HasTraits):
     )
 
 def main(component_hdf5_file):
-    Xmean, tris, components, names = load_splocs(component_hdf5_file)
-
+    Xmean, tris, components, _, _, _, _  = load_splocs(component_hdf5_file)
     visualization = Visualization(Xmean, tris, components)
     visualization.configure_traits()
 
